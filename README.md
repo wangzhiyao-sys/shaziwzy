@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # MCP-PolyGame-Agent
 
 A Model Context Protocol (MCP) Server for role-aware multi-party game reasoning, designed for simplified Werewolf game scenarios (5 players: 2 wolves, 2 villagers, 1 seer).
@@ -379,3 +380,7 @@ The project uses:
 - [MCP Documentation](https://modelcontextprotocol.io/)
 - [FastMCP](https://github.com/jlowin/fastmcp)
 - Project documentation in `docs/` directory
+=======
+# shaziwzy
+wzy is a shazi
+>>>>>>> 4d5ec29d2fe52cc6db9484b94fb408751f3746bc
