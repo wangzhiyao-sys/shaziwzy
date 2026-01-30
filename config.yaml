@@ -22,3 +22,41 @@ logging: # 日志配置
     rotation: "10 MB"
     retention: "7 days"
     compression: "zip"
+
+# ========== 新增：训练/模型/数据配置（第三步核心要求） ==========
+# 模型基础配置
+model:
+  default_type: "LSTM"        # 默认模型架构
+  save_path: "./resources/models"  # 模型保存根目录
+  max_versions: 15            # 最大保留模型版本数
+
+# 训练相关配置
+training:
+  # 数据相关
+  data:
+    default_dataset_id: "default_werewolf"  # 默认数据集ID
+    train_ratio: 0.7                        # 训练集比例
+    val_ratio: 0.15                         # 验证集比例
+    test_ratio: 0.15                        # 测试集比例
+    export_path: "./exports/training_data"  # 数据默认导出路径
+  # 超参数默认值
+  hyper_params:
+    epochs: 50
+    batch_size: 32
+    learning_rate: 0.001
+    optimizer: "Adam"
+    loss_function: "cross_entropy"
+    early_stopping_patience: 5
+  # 评估默认配置（模拟指标，实际由评估层生成）
+  eval:
+    mock_accuracy: 0.89
+    mock_precision: 0.87
+    mock_recall: 0.85
+    mock_f1: 0.86
+    mock_loss: 0.23
+  # 监控配置
+  monitoring:
+    tensorboard:
+      enabled: true
+      log_dir: "./logs/tensorboard"  # TensorBoard日志目录
+    log_interval: 10  # 每10轮记录一次训练指标

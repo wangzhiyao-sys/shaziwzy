@@ -3,6 +3,7 @@ import os
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 from modules.YA_Common.utils.logger import get_logger
+import json
 
 logger = get_logger("database")
 
@@ -50,7 +51,47 @@ class GameDatabase:
                 updated_at TEXT
             )
         """)
-        
+   
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS TrainingData (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dataset_id TEXT NOT NULL,
+                features TEXT NOT NULL, 
+                label TEXT NOT NULL,     
+                game_id TEXT,           
+                created_at TEXT NOT NULL,
+                annotated_by TEXT DEFAULT 'system'  
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ModelVersion (
+                version_id TEXT PRIMARY KEY,
+                model_name TEXT NOT NULL,
+                model_type TEXT NOT NULL,  
+                model_path TEXT NOT NULL,  
+                run_id TEXT,               
+                metrics TEXT,              
+                description TEXT,
+                created_at TEXT NOT NULL,
+                last_evaluated TEXT       
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS TrainingRun (
+                run_id TEXT PRIMARY KEY,
+                model_type TEXT NOT NULL,
+                dataset_id TEXT NOT NULL,
+                hyper_params TEXT NOT NULL,  
+                start_time TEXT NOT NULL,
+                end_time TEXT,
+                status TEXT NOT NULL,        
+                progress REAL DEFAULT 0.0,   
+                model_version_id TEXT        
+            )
+        """)
+
         self.conn.commit()
         logger.info("Database tables initialized")
 
@@ -231,6 +272,181 @@ class GameDatabase:
                 result["alive_players"] = result["alive_players"].split(",")
             return result
         return None
+
+     # ========== 新增：TrainingData表CRUD方法 ==========
+    def create_training_data(
+        self,
+        dataset_id: str,
+        features: Dict[str, Any],
+        label: str,
+        game_id: Optional[str] = None,
+        annotated_by: str = "system"
+    ):
+        """新增训练样本"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO TrainingData (dataset_id, features, label, game_id, created_at, annotated_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            dataset_id,
+            json.dumps(features, ensure_ascii=False),
+            label,
+            game_id,
+            datetime.now().isoformat(),
+            annotated_by
+        ))
+        self.conn.commit()
+
+    def get_training_data(
+        self,
+        dataset_id: Optional[str] = None,
+        label: Optional[str] = None,
+        game_id: Optional[str] = None,
+        limit: int = 10000
+    ) -> List[Dict[str, Any]]:
+        """查询训练数据，支持多条件过滤"""
+        cursor = self.conn.cursor()
+        query = "SELECT * FROM TrainingData WHERE 1=1"
+        params = []
+        if dataset_id:
+            query += " AND dataset_id = ?"
+            params.append(dataset_id)
+        if label:
+            query += " AND label = ?"
+            params.append(label)
+        if game_id:
+            query += " AND game_id = ?"
+            params.append(game_id)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        # 解析JSON特征
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            row_dict["features"] = json.loads(row_dict["features"])
+            result.append(row_dict)
+        return result
+
+    # ========== 新增：ModelVersion表CRUD方法 ==========
+    def create_model_version(
+        self,
+        version_id: str,
+        model_name: str,
+        model_type: str,
+        model_path: str,
+        run_id: Optional[str] = None,
+        description: str = "",
+        created_at: Optional[str] = None
+    ):
+        """新增模型版本记录"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO ModelVersion (version_id, model_name, model_type, model_path, run_id, description, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            version_id,
+            model_name,
+            model_type,
+            model_path,
+            run_id,
+            description,
+            created_at or datetime.now().isoformat()
+        ))
+        self.conn.commit()
+
+    def get_model_version(self, version_id: str) -> Optional[Dict[str, Any]]:
+        """查询单个模型版本"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM ModelVersion WHERE version_id = ?", (version_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def update_model_version(
+        self,
+        version_id: str,
+        metrics: Optional[str] = None,
+        last_evaluated: Optional[str] = None
+    ):
+        """更新模型指标和评估时间"""
+        cursor = self.conn.cursor()
+        updates = []
+        params = []
+        if metrics:
+            updates.append("metrics = ?")
+            params.append(metrics)
+        if last_evaluated:
+            updates.append("last_evaluated = ?")
+            params.append(last_evaluated)
+        if not updates:
+            return
+        params.append(version_id)
+        cursor.execute(f"UPDATE ModelVersion SET {', '.join(updates)} WHERE version_id = ?", params)
+        self.conn.commit()
+
+    # ========== 新增：TrainingRun表CRUD方法 ==========
+    def create_training_run(
+        self,
+        run_id: str,
+        model_type: str,
+        dataset_id: str,
+        hyper_params: str,
+        start_time: Optional[str] = None,
+        status: str = "running"
+    ):
+        """新增训练任务记录"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO TrainingRun (run_id, model_type, dataset_id, hyper_params, start_time, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            run_id,
+            model_type,
+            dataset_id,
+            hyper_params,
+            start_time or datetime.now().isoformat(),
+            status
+        ))
+        self.conn.commit()
+
+    def get_training_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """查询单个训练任务"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM TrainingRun WHERE run_id = ?", (run_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def update_training_run(
+        self,
+        run_id: str,
+        status: Optional[str] = None,
+        end_time: Optional[str] = None,
+        progress: Optional[float] = None,
+        model_version_id: Optional[str] = None
+    ):
+        """更新训练任务状态/进度/关联模型"""
+        cursor = self.conn.cursor()
+        updates = []
+        params = []
+        if status:
+            updates.append("status = ?")
+            params.append(status)
+        if end_time:
+            updates.append("end_time = ?")
+            params.append(end_time)
+        if progress is not None:
+            updates.append("progress = ?")
+            params.append(progress)
+        if model_version_id:
+            updates.append("model_version_id = ?")
+            params.append(model_version_id)
+        if not updates:
+            return
+        params.append(run_id)
+        cursor.execute(f"UPDATE TrainingRun SET {', '.join(updates)} WHERE run_id = ?", params)
+        self.conn.commit()
 
     def close(self):
         self.conn.close()
