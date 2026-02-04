@@ -88,3 +88,11 @@ python server.py
 ```bash
 python game.py
 ```
+
+## Contributors
+
+| Name | Student ID | Role | Notes |
+| :--: | :--------: | :--: | :---: |
+| haaland0325 | (Your ID)  | Lead Developer | Implemented core logic and ML pipeline |
+
+## References
