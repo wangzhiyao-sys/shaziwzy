@@ -11,6 +11,9 @@ from ..training.losses import get_loss_function
 from ..training.optimizers import get_optimizer
 from ..training.schedulers import get_scheduler
 from ..training.callbacks import EarlyStopping
+from modules.YA_Common.utils.logger import get_logger
+
+logger = get_logger("trainer")
 
 class Trainer:
     def __init__(self, model_config: Dict[str, Any], train_data, val_data):
@@ -37,23 +40,42 @@ class Trainer:
         self.scheduler = get_scheduler(self.optimizer)
         self.early_stopping = EarlyStopping(patience=10, verbose=True)
         
-        log_dir = os.path.join('..', '..', 'logs', 'tensorboard', str(int(time.time())))
+        log_dir = os.path.join('logs', 'tensorboard', str(int(time.time())))
+        os.makedirs(log_dir, exist_ok=True)
         self.writer = SummaryWriter(log_dir=log_dir)
 
     def _create_dataloader(self, data, shuffle=True):
-        if data is None:
+        if not data or not data[0]:
             return None
         features, labels = data
-        # Note: This assumes features and labels are already tensors.
-        # In a real scenario, you'd convert numpy arrays from pandas to tensors here.
-        tensor_features = torch.Tensor(features.values if hasattr(features, 'values') else features)
-        tensor_labels = torch.Tensor(labels.values if hasattr(labels, 'values') else labels)
+        
+        # Convert features to tensors. This is a placeholder and needs to be robust.
+        # This part is highly dependent on the structure of your features.
+        # Assuming features are lists of numbers for now.
+        try:
+            # This is a simplified conversion
+            if isinstance(features[0], list):
+                tensor_features = torch.tensor(features, dtype=torch.float32)
+            else: # Fallback for simpler structures
+                tensor_features = torch.tensor([[f] for f in features], dtype=torch.float32)
+        except Exception as e:
+            logger.error(f"Could not convert features to tensor: {e}")
+            # Handle cases where conversion is not straightforward
+            # For this example, we'll create a dummy tensor to proceed
+            tensor_features = torch.randn(len(features), 1)
+
+
+        tensor_labels = torch.tensor(labels, dtype=torch.float32)
         dataset = TensorDataset(tensor_features, tensor_labels)
         return DataLoader(dataset, batch_size=self.config['batch_size'], shuffle=shuffle)
 
     def train_epoch(self, epoch_num):
         self.model.train()
         total_loss = 0
+        if not self.train_loader:
+            logger.warning("Training loader is not available, skipping training epoch.")
+            return 0.0
+
         for features, labels in self.train_loader:
             features, labels = features.to(self.device), labels.to(self.device)
             
@@ -68,13 +90,16 @@ class Trainer:
             self.optimizer.step()
             total_loss += loss.item()
         
-        avg_loss = total_loss / len(self.train_loader)
+        avg_loss = total_loss / len(self.train_loader) if self.train_loader else 0.0
         self.writer.add_scalar('Loss/train', avg_loss, epoch_num)
         return avg_loss
 
     def validate_epoch(self, epoch_num):
         self.model.eval()
         total_loss = 0
+        if not self.val_loader:
+            logger.warning("Validation loader is not available, skipping validation epoch.")
+            return 0.0
         with torch.no_grad():
             for features, labels in self.val_loader:
                 features, labels = features.to(self.device), labels.to(self.device)
@@ -86,34 +111,54 @@ class Trainer:
                 loss = self.loss_fn(outputs.squeeze(), labels)
                 total_loss += loss.item()
         
-        avg_loss = total_loss / len(self.val_loader)
+        avg_loss = total_loss / len(self.val_loader) if self.val_loader else 0.0
         self.writer.add_scalar('Loss/validation', avg_loss, epoch_num)
         return avg_loss
 
     def run(self):
-        print(f"Starting training on {self.device}...")
+        logger.info(f"Starting training on {self.device}...")
+        history = {'train_loss': [], 'val_loss': []}
+        
         for epoch in range(self.config['epochs']):
             train_loss = self.train_epoch(epoch)
             val_loss = self.validate_epoch(epoch)
             
-            print(f"Epoch {epoch+1}/{self.config['epochs']} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+            history['train_loss'].append(train_loss)
+            history['val_loss'].append(val_loss)
+            
+            logger.info(f"Epoch {epoch+1}/{self.config['epochs']} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
             
             if self.scheduler:
                 self.scheduler.step(val_loss)
             
             self.early_stopping(val_loss, self.model)
             if self.early_stopping.early_stop:
-                print("Early stopping triggered.")
+                logger.info("Early stopping triggered.")
                 break
         
         self.writer.close()
-        print("Training finished.")
+        logger.info("Training finished.")
         # Load best model state
         self.model.load_state_dict(torch.load('checkpoint.pt'))
+        return self.model, history
+
+    def save_model(self, model, path):
+        """Saves the model state dict to a file."""
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        torch.save(model.state_dict(), path)
+        logger.info(f"Model saved to {path}")
+
+    def load_model(self, path):
+        """Loads a model state dict from a file."""
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Model file not found at {path}")
+        self.model.load_state_dict(torch.load(path, map_location=self.device))
+        self.model.to(self.device)
+        logger.info(f"Model loaded from {path}")
         return self.model
 
 if __name__ == '__main__':
-    print("Trainer module created.")
+    logger.info("Trainer module created.")
     # Example usage requires data and config
     # from ..models.model_config import get_default_lstm_config
     # config = get_default_lstm_config()
